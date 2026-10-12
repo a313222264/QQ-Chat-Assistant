@@ -66,16 +66,35 @@ def start_napcat():
     )
 
 
-def main():
-    # 1) 机器人QQ在不在
+def health_checks(fix_send: bool) -> None:
+    """通用检查：机器人QQ缺失则拉起；fix_send=True 时再用发送实测判定假死并修复。"""
     pids = bot_qq_mains()
     if not pids:
-        # 6099都没了才算掉线；只有6099在而QQ没起，交给NapCat自动恢复
         log("机器人QQ进程缺失 -> 重新拉起 NapCat")
         start_napcat()
         return
 
-    # 2) 会话假死检测（发送失败标记）
+    if fix_send:
+        # 主动实测发送通道（唤醒场景：睡眠可能把会话变僵尸，读接口看不出来）
+        try:
+            out = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "healthcheck.py"), "sendtest"],
+                capture_output=True, text=True, timeout=90,
+            ).stdout
+        except Exception as e:
+            log(f"唤醒自检发送实测失败: {e.__class__.__name__}")
+            return
+        if "retcode=0" in out:
+            log("唤醒自检：发送通道正常")
+            return
+        log(f"唤醒自检：发送通道异常({out.strip()[:80]}) -> 只杀机器人QQ实例并重启")
+        kill_bot_qq(pids)
+        time.sleep(3)
+        start_napcat()
+        log("NapCat 已重启（如快速登录失效，请在QQ窗口扫码）")
+        return
+
+    # 常规模式：只看发送失败标记（不打扰群）
     try:
         flag_ts = float(FLAG.read_text(encoding="utf-8").strip())
         fresh = time.time() - flag_ts < FLAG_FRESH_SECONDS
@@ -95,6 +114,20 @@ def main():
         return
 
     log("一切正常")
+
+
+def main():
+    mode = sys.argv[1] if len(sys.argv) > 1 else "normal"
+
+    if mode == "resume":
+        # 系统唤醒事件触发：等网络和QQ先自己重连1分钟，再带发送实测的检查
+        time.sleep(60)
+        log("系统唤醒 -> 执行唤醒自检")
+        health_checks(fix_send=True)
+        return
+
+    # 常规定时巡检
+    health_checks(fix_send=False)
 
 
 if __name__ == "__main__":

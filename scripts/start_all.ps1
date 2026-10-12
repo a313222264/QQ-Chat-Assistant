@@ -199,6 +199,24 @@ function Toggle-Watchdog {
     }
 }
 
+function Toggle-KeepAlive {
+    Write-Host ""
+    Write-Host "======== 保活模式（防止睡眠掉线） ========" -ForegroundColor Cyan
+    Write-Host " 机器人在电脑睡眠期间必然离线（整机断网），唤醒后靠看门狗自动恢复。"
+    Write-Host " 若希望机器人 7x24 在线，可禁用睡眠：只关屏幕、不睡眠（桌面机功耗很低）。"
+    $sel = Read-Host "输入 on 禁用睡眠 / off 恢复系统默认 / 回车=不动"
+    if ($sel -eq "on") {
+        powercfg /change standby-timeout-ac 0
+        powercfg /change standby-timeout-dc 0
+        powercfg /change hibernate-timeout-ac 0
+        Write-Host "✅ 已禁用睡眠（交流+电池），机器人可 7x24 在线。恢复方法：Windows 设置→系统→电源" -ForegroundColor Green
+    } elseif ($sel -eq "off") {
+        powercfg /change standby-timeout-ac 30
+        powercfg /change standby-timeout-dc 20
+        Write-Host "已恢复默认睡眠策略（交流30分钟/电池20分钟）" -ForegroundColor Gray
+    }
+}
+
 if ($Action) {
     switch ($Action) {
         "1" { Invoke-NormalStart; exit }
@@ -206,6 +224,7 @@ if ($Action) {
         "3" { Invoke-Diagnose; exit }
         "4" { Invoke-SendTest; exit }
         "5" { Toggle-Watchdog; exit }
+        "6" { Toggle-KeepAlive; exit }
     }
 }
 
@@ -217,6 +236,7 @@ while ($true) {
     Write-Host "  [3] 自检诊断（查QQ实例/端口/进程/日志）"
     Write-Host "  [4] 发送通道测试（向推送群发🔧自检消息）"
     Write-Host "  [5] 看门狗 开/关（当前每30分钟自动巡检）"
+    Write-Host "  [6] 保活模式 开/关（禁用睡眠=机器人不掉线的唯一彻底解）"
     Write-Host "  [q] 退出"
     $sel = Read-Host "选择（回车=[1]）"
     if ([string]::IsNullOrWhiteSpace($sel)) { $sel = "1" }
@@ -226,6 +246,7 @@ while ($true) {
         "3" { Invoke-Diagnose }
         "4" { Invoke-SendTest }
         "5" { Toggle-Watchdog }
+        "6" { Toggle-KeepAlive }
         "q" { exit }
         "Q" { exit }
         default { Write-Host "无效选择" -ForegroundColor Yellow }
