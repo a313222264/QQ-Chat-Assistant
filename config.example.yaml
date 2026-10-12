@@ -1,0 +1,109 @@
+# ========= QQ聊天助手 配置模板 =========
+# 复制本文件为 config.yaml 后按注释填写。config.yaml 不要外传（含密钥）。
+
+napcat:
+  # NapCat WebUI 里配置"正向WebSocket服务"后，把地址填这里
+  ws_url: "ws://127.0.0.1:3001"
+  # NapCat 网络配置里如果设置了 token 就填，没设就留空
+  access_token: ""
+
+admin:
+  # 超级管理员的QQ号（你自己），数组可填多个
+  superusers: [10000]
+  # 白名单群：留空 [] 表示所有群都响应；填QQ群号则只在这些群工作
+  whitelist_groups: []
+  # 白名单好友：留空 [] 表示所有私聊都响应
+  whitelist_friends: []
+
+ai:
+  # MiniMax 开放平台 (platform.minimaxi.com) 创建的 API Key
+  api_key: ""
+  # MiniMax OpenAI兼容接口地址（已实测国内站为 https://api.minimaxi.com/v1；国际站 https://api.minimax.io/v1）
+  base_url: "https://api.minimaxi.com/v1"
+  # 模型名，以你账号可用列表为准
+  model: "MiniMax-M3"
+  name_aliases: ["东小0"]    # 群里直接叫名字就触发回复，不用@
+  group_passive:              # 普通群消息小概率插嘴（AI自己决定说不说，可SKIP）
+    enabled: true
+    chance: 0.15              # 每条非@消息的插嘴评估概率
+    min_len: 4                # 太短的消息不评估
+    group_cooldown: 120       # 同一群两次插嘴最小间隔（秒）
+  tools_enabled: true        # 允许AI自主调用工具（搜索/剑网3数据/发表情包）
+  max_tool_rounds: 3
+  # 默认人设（管理员可用"设置人设 xxx"命令临时修改，存数据库）
+  system_prompt: "你是一个友好的QQ群聊助手，说话简洁自然、带点幽默，用中文回答。不要输出markdown格式。"
+  max_tokens: 800
+  temperature: 0.8
+  # 每会话保留的最近对话条数（user+assistant 合计）
+  max_context: 12
+  context_summary:
+    enabled: true             # 上下文滚动摘要：超出窗口的老对话压缩成摘要注入（关闭=硬截断）
+  # 同一个人两次触发AI的最小间隔秒数（防刷屏）
+  per_user_cooldown: 5
+  # 每个群每天AI回复上限
+  group_daily_limit: 200
+  # AI回复最大长度（字符），超出截断
+  max_reply_len: 800
+
+plugins:
+  msg_archive:
+    enabled: true
+  group_manage:
+    enabled: true
+    welcome: "欢迎 {name} 加入本群！🎉 请先看群公告，多多交流~"
+    farewell: "{name} 离开了本群，一路顺风~"
+    # 初始关键词（之后管理员在群里用 添加关键词/删除关键词 维护）
+    keywords: []
+  memes:
+    enabled: true
+    dir: "data/memes"          # 表情包图库：图片文件名=关键词
+  game_data:
+    enabled: true
+    jx3_server: ""             # 剑网3默认区服
+    jx3_token: ""              # jx3api令牌（金价行情需要，jx3api.com注册；其余数据免token）
+  proactive_chat:              # 自主聊天：模拟群员插话
+    enabled: true
+    groups: []                 # 启用的群号列表，空=不启用
+    min_gap_minutes: 30        # 随机插话最小间隔（分钟）
+    max_gap_minutes: 180       # 最大间隔
+    daily_limit: 5             # 每群每天上限
+    quiet_hours: [23, 8]       # 静默时段 23:00-08:00
+    chance: 0.6                # 每次触发的插话概率
+    min_recent_msgs: 5         # 最近2小时少于N条消息就不插话
+    history_window_hours: 2
+    meme_chance: 0.1           # 插话时附带表情包的概率
+  life_assistant:
+    enabled: true
+    # 每日播报：enabled 开启后，每天在 targets 里推送 content（可附带天气）
+    daily_report:
+      enabled: false
+      time: "08:30"
+      content: "早安！新的一天加油！☀️"
+      with_weather: []          # 例: ["北京"]
+      targets: []               # 例: [{type: "group", id: 123456}]
+  fun:                        # 趣味包：运势/签到积分/小游戏/每日一题（仅群聊）
+    enabled: true
+  digest:                     # 推送包：群日报/金价播报/订阅推送
+    enabled: true
+    digest_time: "08:00"      # 群聊日报推送时间（push_groups 为空时复用自主聊天的群）
+    gold_enabled: true
+    gold_time: "08:30"
+    gold_servers: []          # 空=自动取前6个区服
+    sub_time: "18:00"
+    push_groups: []
+  media:                      # 媒体包：总结链接 / 吐槽图片(OCR)
+    enabled: true
+  voice:                      # 语音包：说 xxx（MiniMax TTS）
+    enabled: true
+    model: "speech-02-hd"
+    voice_id: "male-qn-qingse"
+  admin:
+    enabled: true
+  ai_chat:
+    enabled: true
+
+log:
+  level: "INFO"
+  dir: "logs"
+
+data_dir: "data"
