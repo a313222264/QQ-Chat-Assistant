@@ -21,16 +21,27 @@ function Test-BotRunning {
     return $null -ne $p
 }
 
-function Kill-AllQQ {
-    # 循环杀到零：解决多套QQ实例叠跑抢会话的问题
-    for ($i = 0; $i -lt 10; $i++) {
-        Stop-Process -Name QQ -Force -ErrorAction SilentlyContinue
-        Stop-Process -Name NapCatWinBootMain -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Milliseconds 800
-        if (-not (Get-Process -Name QQ -ErrorAction SilentlyContinue)) { break }
+function Get-BotQQMains {
+    # 机器人QQ主进程 = 命令行含 --enable-logging（NapCat拉起的特征）
+    # 你自己开的QQ（无此参数）永远不会被匹配到
+    return @(Get-CimInstance Win32_Process -Filter "Name='QQ.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -match "--enable-logging" })
+}
+
+function Kill-BotQQ {
+    # 只杀机器人QQ实例（连同其子进程树），绝不碰你自己开的QQ
+    $mains = Get-BotQQMains
+    if ($mains.Count -eq 0) { return $true }
+    foreach ($m in $mains) {
+        taskkill /PID $m.ProcessId /T /F 2>&1 | Out-Null
     }
-    if (Get-Process -Name QQ -ErrorAction SilentlyContinue) {
-        Write-Host "  !! QQ进程无法完全清除，请手动关闭QQ后重试" -ForegroundColor Red
+    Stop-Process -Name NapCatWinBootMain -Force -ErrorAction SilentlyContinue
+    for ($i = 0; $i -lt 8; $i++) {
+        if ((Get-BotQQMains).Count -eq 0) { break }
+        Start-Sleep -Milliseconds 800
+    }
+    if ((Get-BotQQMains).Count -gt 0) {
+        Write-Host "  !! 机器人QQ实例未能完全清除，请稍后重试" -ForegroundColor Red
         return $false
     }
     return $true
@@ -101,9 +112,9 @@ function Invoke-NormalStart {
 function Invoke-FullRepair {
     Write-Host ""
     Write-Host "======== 全面修复 ========" -ForegroundColor Cyan
-    Write-Host "  >> 注意：会强制关闭所有QQ窗口（含你自己的QQ），完成后可重新打开登录" -ForegroundColor Yellow
-    Write-Host "[1/5] 清除全部 QQ 实例（解决多实例叠跑）..."
-    if (-not (Kill-AllQQ)) { return }
+    Write-Host "  >> 只重启机器人的QQ实例，不会动你自己开的QQ" -ForegroundColor Yellow
+    Write-Host "[1/5] 清除机器人 QQ 实例（解决会话假死/实例叠跑）..."
+    if (-not (Kill-BotQQ)) { return }
     for ($i = 0; $i -lt 6; $i++) {
         if (-not (Test-Port 6099) -and -not (Test-Port 3001)) { break }
         Start-Sleep -Seconds 2
@@ -140,13 +151,13 @@ function Invoke-Diagnose {
     Write-Host "======== 自检诊断 ========" -ForegroundColor Cyan
     $all = @(Get-CimInstance Win32_Process -Filter "Name='QQ.exe'" -ErrorAction SilentlyContinue)
     $mains = @($all | Where-Object { $_.CommandLine -notmatch "--type=" })
-    Write-Host ("QQ进程总数: " + $all.Count + "   主进程数: " + $mains.Count)
-    if ($mains.Count -gt 0) {
-        $mains | ForEach-Object { Write-Host ("  主进程 pid=" + $_.ProcessId + " start=" + $_.CreationDate.ToString("HH:mm:ss")) }
-        $starts = @($mains | ForEach-Object { $_.CreationDate } | Sort-Object)
-        if ($mains.Count -gt 1 -and ($starts[-1] - $starts[0]).TotalMinutes -gt 10) {
-            Write-Host "  ⚠ 多套QQ主进程启动间隔>10分钟 = 疑似叠跑风险，建议[2]全面修复" -ForegroundColor Yellow
-        }
+    Write-Host ("QQ进程总数: " + $all.Count)
+    $botMains = Get-BotQQMains
+    $userMains = @($mains | Where-Object { $_.CommandLine -notmatch "--enable-logging" })
+    Write-Host ("机器人QQ实例: " + $botMains.Count + " 套（多于1套=叠跑风险）")
+    $botMains | ForEach-Object { Write-Host ("  [机器人] pid=" + $_.ProcessId + " start=" + $_.CreationDate.ToString("HH:mm:ss")) }
+    if ($userMains.Count -gt 0) {
+        Write-Host ("你自己的QQ实例: " + $userMains.Count + " 套（修复时不受影响）")
     }
     Write-Host ("端口6099: " + (Test-Port 6099) + "   端口3001: " + (Test-Port 3001))
     Write-Host ("机器人进程: " + (Test-BotRunning))

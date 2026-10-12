@@ -120,9 +120,27 @@ class NapCatConnection:
 
         if result.get("retcode") not in (0, "0", 1, "1"):
             # retcode=1 是 OneBot 11 的 async 语义，NapCat 同步回包时一般为 0
-            wording = result.get("wording") or result.get("message") or "未知错误"
+            wording = str(result.get("wording") or result.get("message") or "未知错误")
+            self._mark_send_fail_if_zombie(action, result.get("retcode"), wording)
             raise ApiError(f"API {action} 失败: retcode={result.get('retcode')} {wording}")
         return result.get("data")
+
+    def _mark_send_fail_if_zombie(self, action: str, retcode, wording: str):
+        """QQ会话死亡的特征（如retcode 1200/网络连接异常）写标记文件，供看门狗判定自愈。"""
+        if not action.startswith(("send", "group_poke", "friend_poke", "upload")):
+            return
+        if "1200" not in str(retcode) and "网络" not in wording and "异常" not in wording:
+            return
+        try:
+            from pathlib import Path
+            import time as _time
+
+            flag = Path("data/send_fail.flag")
+            flag.parent.mkdir(parents=True, exist_ok=True)
+            flag.write_text(str(_time.time()), encoding="utf-8")
+            log.error("检测到发送通道异常（QQ会话疑似死亡），已记录标记待看门狗处理")
+        except Exception:
+            pass
 
     def _fail_pending(self, reason: str):
         for fut in self._pending.values():

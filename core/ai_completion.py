@@ -10,14 +10,19 @@ _client_cache = {}
 
 
 def get_client(cfg):
-    """按 (base_url, api_key) 缓存 OpenAI 兼容客户端。"""
+    """按 (base_url, api_key) 缓存 OpenAI 兼容客户端。
+    timeout=60/max_retries=1：MiniMax 偶发过载(529)或挂起时快速失败，
+    避免单条对话卡住几分钟造成'假死'观感。
+    """
     api_key = cfg.get("ai.api_key", "") or ""
     base_url = cfg.get("ai.base_url", "https://api.minimaxi.com/v1")
     key = (base_url, api_key)
     if key not in _client_cache:
         from openai import OpenAI
 
-        _client_cache[key] = OpenAI(api_key=api_key or "EMPTY", base_url=base_url)
+        _client_cache[key] = OpenAI(
+            api_key=api_key or "EMPTY", base_url=base_url, timeout=60.0, max_retries=1
+        )
     return _client_cache[key]
 
 
