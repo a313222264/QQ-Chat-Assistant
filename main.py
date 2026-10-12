@@ -38,6 +38,27 @@ async def main():
     scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
     bot.scheduler = scheduler
 
+    # 健康巡检：每10分钟只读检查一次，连续3次异常在日志醒目告警
+    health_fails = {"n": 0}
+
+    async def health_patrol():
+        if not (bot.conn and bot.conn.connected.is_set()):
+            return  # 未连接阶段由连接层处理，不算巡检失败
+        try:
+            info = await bot.get_login_info()
+            st = await bot.get_status()
+            health_fails["n"] = 0
+            log.info("健康巡检: 在线=%s 账号=%s", st.get("online"), info.get("nickname"))
+        except Exception as e:
+            health_fails["n"] += 1
+            log.warning("健康巡检失败(%d/3): %s", health_fails["n"], e.__class__.__name__)
+            if health_fails["n"] >= 3:
+                log.error("⚠ 会话疑似死亡（连续3次巡检失败），建议运行桌面启动器 → 全面修复")
+
+    scheduler.add_job(health_patrol, "interval", minutes=10, id="health_patrol")
+    scheduler.start()
+    log.info("健康巡检已注册（每10分钟）")
+
     try:
         await conn.run()
     finally:

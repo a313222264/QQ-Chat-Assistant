@@ -22,6 +22,10 @@ async def on_message(bot, event) -> bool:
     # 1) 全量存档（群聊+私聊；群临时会话等也存，字段尽量全）
     try:
         bot.db.insert_message(event, segments.readable_text(event), event.get("raw_message") or "")
+        log.info("收到消息: [%s] %s: %s",
+                 event.get("group_id") or "私聊",
+                 (event.get("sender") or {}).get("card") or event.get("user_id"),
+                 (segments.plain_text(event) or "")[:40])
     except Exception:
         log.exception("消息存档失败")
 

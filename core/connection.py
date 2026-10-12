@@ -95,7 +95,9 @@ class NapCatConnection:
             return
 
         if "post_type" in data:
-            # 事件交给分发器，逐条隔离异常
+            # 事件交给分发器，逐条隔离异常；DEBUG下记录事件便于诊断
+            log.debug("收到事件: %s %s", data.get("post_type"),
+                      data.get("message_type") or data.get("notice_type") or "")
             asyncio.create_task(self.dispatcher.dispatch(self.bot, data))
         elif data.get("status") == "failed":
             log.warning("API失败报文（无echo匹配）：%s", data.get("message"))

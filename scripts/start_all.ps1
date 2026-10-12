@@ -1,10 +1,15 @@
-﻿# ===== QQ聊天助手 一键启动器 =====
-# 逻辑：NapCat没开就启动 -> 等QQ登录(3001端口) -> 机器人没跑就启动
-# 重复双击安全：已在运行的部分自动跳过
+﻿# ===== QQ聊天助手 启动器 v2 =====
+# 双击进入菜单；支持参数直跑（调试用）：powershell -File start_all.ps1 -Action 1|2|3|4
+# [1] 启动/重启（幂等）   [2] 全面修复（杀QQ+重启NapCat+扫码+验证发送）
+# [3] 自检诊断             [4] 发送通道测试
+param([string]$Action = "")
+
 $ErrorActionPreference = "Continue"
 $root = "D:\小编程\qq-assistant"
 $napcatDir = Join-Path $root "NapCat\Shell"
 $venvPy = Join-Path $root "venv\Scripts\python.exe"
+$healthPy = Join-Path $root "scripts\healthcheck.py"
+$qrPath = Join-Path $root "NapCat\_login_qr.png"
 
 function Test-Port($port) {
     return $null -ne (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
@@ -16,54 +21,182 @@ function Test-BotRunning {
     return $null -ne $p
 }
 
-Write-Host ""
-Write-Host "======== QQ聊天助手 启动器 ========" -ForegroundColor Cyan
-
-# ---- 1. NapCat ----
-if ((Test-Port 6099) -or (Get-Process NapCatWinBootMain -ErrorAction SilentlyContinue)) {
-    Write-Host "[1/3] NapCat 已在运行，跳过" -ForegroundColor Gray
-} else {
-    Write-Host "[1/3] 正在启动 NapCat（QQ登录窗口即将弹出，如需扫码请用小号2531285699扫）..."
-    Start-Process cmd -ArgumentList "/c", "`"$napcatDir\launcher-user.bat`"" -WorkingDirectory $napcatDir
-    Start-Sleep 5
+function Kill-AllQQ {
+    # 循环杀到零：解决多套QQ实例叠跑抢会话的问题
+    for ($i = 0; $i -lt 10; $i++) {
+        Stop-Process -Name QQ -Force -ErrorAction SilentlyContinue
+        Stop-Process -Name NapCatWinBootMain -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 800
+        if (-not (Get-Process -Name QQ -ErrorAction SilentlyContinue)) { break }
+    }
+    if (Get-Process -Name QQ -ErrorAction SilentlyContinue) {
+        Write-Host "  !! QQ进程无法完全清除，请手动关闭QQ后重试" -ForegroundColor Red
+        return $false
+    }
+    return $true
 }
 
-# ---- 2. 等待QQ登录（3001端口） ----
-if (Test-Port 3001) {
-    Write-Host "[2/3] OneBot 端口 3001 已就绪（QQ已登录）" -ForegroundColor Gray
-} else {
-    Write-Host "[2/3] 等待QQ登录中（最多3分钟）..."
-    Write-Host "      提示：请在弹出的QQ窗口用【小号2531285699】扫码登录" -ForegroundColor Yellow
-    $ok = $false
-    for ($i = 0; $i -lt 36; $i++) {
-        if (Test-Port 3001) { $ok = $true; break }
+function Start-NapCatIfNeeded {
+    if (Test-Port 6099) {
+        Write-Host "[NapCat] 已在运行，跳过" -ForegroundColor Gray
+        return
+    }
+    Write-Host "[NapCat] 正在启动（QQ登录窗口将弹出）..."
+    Start-Process cmd -ArgumentList "/c", "`"$napcatDir\launcher-user.bat`"" -WorkingDirectory $napcatDir
+    for ($i = 0; $i -lt 18; $i++) {
+        if (Test-Port 6099) { Write-Host "[NapCat] 已上线(6099)"; return }
         Start-Sleep -Seconds 5
     }
-    if ($ok) {
-        Write-Host "      登录成功，3001 已就绪"
-    } else {
-        Write-Host "      等待超时：QQ 还没登录。机器人稍后会自动重连，也可登录后重新运行本启动器。" -ForegroundColor Yellow
-    }
+    Write-Host "  !! NapCat 启动超时，请检查 Shell 目录" -ForegroundColor Yellow
 }
 
-# ---- 3. 机器人 ----
-if (Test-BotRunning) {
-    Write-Host "[3/3] 机器人已在运行，跳过" -ForegroundColor Gray
-} else {
-    Write-Host "[3/3] 正在启动机器人..."
-    Start-Process -FilePath $venvPy -ArgumentList "main.py" -WorkingDirectory $root
-    Start-Sleep 4
+function Start-BotIfNeeded {
     if (Test-BotRunning) {
-        Write-Host "      机器人已启动（日志在它的黑窗口里）"
+        Write-Host "[机器人] 已在运行，跳过" -ForegroundColor Gray
+        return
+    }
+    Write-Host "[机器人] 正在启动..."
+    Start-Process -FilePath $venvPy -ArgumentList "main.py" -WorkingDirectory $root
+    Start-Sleep -Seconds 4
+    if (Test-BotRunning) { Write-Host "[机器人] 已启动" } else { Write-Host "  !! 启动失败，请检查 venv/config.yaml" -ForegroundColor Red }
+}
+
+function Wait-Login($maxMinutes) {
+    # 用健康脚本轮询登录状态；未登录时每90秒刷新一次二维码并弹出
+    $qrShown = $false
+    $loops = $maxMinutes * 12
+    for ($i = 1; $i -le $loops; $i++) {
+        if ($i % 18 -eq 1) {
+            $out = & $venvPy $healthPy login $qrPath 2>$null
+            if (-not $qrShown) {
+                Start-Process $qrPath
+                $qrShown = $true
+                Write-Host "  >> 二维码已弹出，请用手机上的小号(东小0)扫码登录" -ForegroundColor Yellow
+            }
+        } else {
+            $out = & $venvPy $healthPy login "" 2>$null
+        }
+        if ($out -match "isLogin=True") { Write-Host "[QQ] 登录成功" -ForegroundColor Green; return $true }
+        Start-Sleep -Seconds 5
+    }
+    Write-Host "  !! 等待扫码超时（$maxMinutes 分钟）" -ForegroundColor Red
+    return $false
+}
+
+function Invoke-NormalStart {
+    Write-Host ""
+    Write-Host "======== 启动/重启 ========" -ForegroundColor Cyan
+    Start-NapCatIfNeeded
+    if (Test-Port 3001) {
+        Write-Host "[QQ] OneBot 端口 3001 已就绪" -ForegroundColor Gray
     } else {
-        Write-Host "      启动可能失败：请检查 config.yaml 是否存在、venv 是否完好" -ForegroundColor Red
+        Write-Host "[QQ] 等待登录（最多5分钟，需扫码时二维码会自动弹出）..."
+        if (-not (Wait-Login 5)) { Write-Host "  >> 机器人会在你登录后自动重连，可稍后重新运行本启动器" -ForegroundColor Yellow }
+    }
+    Start-BotIfNeeded
+    Write-Host ""
+    Write-Host "完成。私聊或群里@东小0 即可对话；停止=关闭 NapCat 和机器人两个黑窗口" -ForegroundColor Green
+}
+
+function Invoke-FullRepair {
+    Write-Host ""
+    Write-Host "======== 全面修复 ========" -ForegroundColor Cyan
+    Write-Host "  >> 注意：会强制关闭所有QQ窗口（含你自己的QQ），完成后可重新打开登录" -ForegroundColor Yellow
+    Write-Host "[1/5] 清除全部 QQ 实例（解决多实例叠跑）..."
+    if (-not (Kill-AllQQ)) { return }
+    for ($i = 0; $i -lt 6; $i++) {
+        if (-not (Test-Port 6099) -and -not (Test-Port 3001)) { break }
+        Start-Sleep -Seconds 2
+    }
+    Write-Host "[2/5] 启动 NapCat..."
+    Start-NapCatIfNeeded
+    Write-Host "[3/5] 检查QQ登录状态..."
+    if (Test-Port 3001) {
+        Write-Host "  >> 已处于登录状态，无需扫码" -ForegroundColor Gray
+    } else {
+        Write-Host "  >> 需要扫码登录，二维码稍后弹出，请留意屏幕" -ForegroundColor Yellow
+        if (-not (Wait-Login 10)) { return }
+    }
+    Write-Host "[4/5] 确保机器人运行..."
+    Start-BotIfNeeded
+    Write-Host "[5/5] 发送通道实测..."
+    $sendOut = $null
+    for ($i = 0; $i -lt 6; $i++) {
+        $sendOut = & $venvPy $healthPy sendtest 2>$null
+        if ($sendOut -match "retcode=0") { break }
+        Start-Sleep -Seconds 10
+    }
+    Write-Host ($sendOut -join "`n")
+    if ($sendOut -match "retcode=0") {
+        Write-Host "  ✅ 发送通道正常，机器人已恢复（群里会看到🔧自检消息）" -ForegroundColor Green
+    } else {
+        Write-Host "  ❌ 发送通道仍异常" -ForegroundColor Red
+        Write-Host "  >> 可能QQ又掉了，重新运行一次[2]，或检查网络后再说"
     }
 }
 
-Write-Host ""
-Write-Host "======== 完成 ========" -ForegroundColor Green
-Write-Host " 对话方式：私聊【东小0】直接说，或群里 @东小0 + 内容"
-Write-Host " 停止方法：关闭 NapCat 和机器人两个黑窗口即可"
-Write-Host ""
-Write-Host "按任意键关闭本窗口..."
-$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+function Invoke-Diagnose {
+    Write-Host ""
+    Write-Host "======== 自检诊断 ========" -ForegroundColor Cyan
+    $all = @(Get-CimInstance Win32_Process -Filter "Name='QQ.exe'" -ErrorAction SilentlyContinue)
+    $mains = @($all | Where-Object { $_.CommandLine -notmatch "--type=" })
+    Write-Host ("QQ进程总数: " + $all.Count + "   主进程数: " + $mains.Count)
+    if ($mains.Count -gt 0) {
+        $mains | ForEach-Object { Write-Host ("  主进程 pid=" + $_.ProcessId + " start=" + $_.CreationDate.ToString("HH:mm:ss")) }
+        $starts = @($mains | ForEach-Object { $_.CreationDate } | Sort-Object)
+        if ($mains.Count -gt 1 -and ($starts[-1] - $starts[0]).TotalMinutes -gt 10) {
+            Write-Host "  ⚠ 多套QQ主进程启动间隔>10分钟 = 疑似叠跑风险，建议[2]全面修复" -ForegroundColor Yellow
+        }
+    }
+    Write-Host ("端口6099: " + (Test-Port 6099) + "   端口3001: " + (Test-Port 3001))
+    Write-Host ("机器人进程: " + (Test-BotRunning))
+    if (Test-Port 3001) {
+        $st = & $venvPy $healthPy status 2>$null
+        Write-Host ("健康检查: " + ($st -join " "))
+    }
+    $logFile = Join-Path $root "logs\bot.log"
+    if (Test-Path $logFile) {
+        $recent = Get-Content $logFile -Tail 40 -ErrorAction SilentlyContinue | Select-String -Pattern "WARNING|ERROR|出错|失败|死亡" | Select-Object -Last 5
+        if ($recent) { Write-Host "最近日志异常:" -ForegroundColor Yellow; $recent | ForEach-Object { Write-Host ("  " + $_.Line) } }
+        else { Write-Host "最近日志无异常记录" -ForegroundColor Gray }
+    }
+    Write-Host ">> 疑似'会话死亡'(能收消息但发不出)时，选[2]全面修复"
+}
+
+function Invoke-SendTest {
+    Write-Host ""
+    Write-Host "======== 发送通道测试 ========" -ForegroundColor Cyan
+    $out = & $venvPy $healthPy sendtest 2>$null
+    Write-Host ($out -join "`n")
+    if ($out -match "retcode=0") { Write-Host "✅ 发送正常" -ForegroundColor Green } else { Write-Host "❌ 发送失败，建议[2]全面修复" -ForegroundColor Red }
+}
+
+if ($Action) {
+    switch ($Action) {
+        "1" { Invoke-NormalStart; exit }
+        "2" { Invoke-FullRepair; exit }
+        "3" { Invoke-Diagnose; exit }
+        "4" { Invoke-SendTest; exit }
+    }
+}
+
+while ($true) {
+    Write-Host ""
+    Write-Host "======== QQ聊天助手 启动器 v2 ========" -ForegroundColor Cyan
+    Write-Host "  [1] 启动/重启（幂等，缺什么启什么）"
+    Write-Host "  [2] 全面修复（会话死亡/多实例叠跑的一键解法，需扫码）"
+    Write-Host "  [3] 自检诊断（查QQ实例/端口/进程/日志）"
+    Write-Host "  [4] 发送通道测试（向推送群发🔧自检消息）"
+    Write-Host "  [q] 退出"
+    $sel = Read-Host "选择（回车=[1]）"
+    if ([string]::IsNullOrWhiteSpace($sel)) { $sel = "1" }
+    switch ($sel) {
+        "1" { Invoke-NormalStart }
+        "2" { Invoke-FullRepair }
+        "3" { Invoke-Diagnose }
+        "4" { Invoke-SendTest }
+        "q" { exit }
+        "Q" { exit }
+        default { Write-Host "无效选择" -ForegroundColor Yellow }
+    }
+}

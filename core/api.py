@@ -139,6 +139,10 @@ class Bot:
     async def get_login_info(self) -> dict:
         return await self.call_action("get_login_info")
 
+    async def get_status(self) -> dict:
+        """当前账号在线状态（健康巡检用）。"""
+        return await self.call_action("get_status")
+
     async def get_friend_list(self) -> list:
         return await self.call_action("get_friend_list")
 
