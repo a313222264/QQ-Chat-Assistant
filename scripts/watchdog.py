@@ -58,8 +58,9 @@ def kill_bot_qq(pids: list):
 
 
 def start_napcat():
+    """最小化启动 NapCat（黑色控制台缩到任务栏，不抢屏幕）。"""
     subprocess.Popen(
-        ["cmd", "/c", "launcher-user.bat"],
+        ["cmd", "/c", "start", "/min", "", "launcher-user.bat"],
         cwd=str(SHELL),
         creationflags=subprocess.CREATE_NO_WINDOW,
     )

@@ -182,12 +182,30 @@ function Invoke-SendTest {
     if ($out -match "retcode=0") { Write-Host "✅ 发送正常" -ForegroundColor Green } else { Write-Host "❌ 发送失败，建议[2]全面修复" -ForegroundColor Red }
 }
 
+function Toggle-Watchdog {
+    Write-Host ""
+    Write-Host "======== 看门狗开关 ========" -ForegroundColor Cyan
+    $cur = (schtasks /Query /TN QQBotWatchdog 2>$null | Select-String "QQBotWatchdog")
+    if (-not $cur) { Write-Host "看门狗任务不存在"; return }
+    $statusOut = schtasks /Query /TN QQBotWatchdog /V /FO LIST 2>$null | Select-String "状态|Status"
+    Write-Host ($statusOut -join "`n")
+    $sel = Read-Host "输入 on 开启 / off 关闭（回车=不动）"
+    if ($sel -eq "on") {
+        schtasks /Change /TN QQBotWatchdog /ENABLE | Out-Null
+        Write-Host "✅ 看门狗已开启（每30分钟自动巡检自愈）" -ForegroundColor Green
+    } elseif ($sel -eq "off") {
+        schtasks /Change /TN QQBotWatchdog /DISABLE | Out-Null
+        Write-Host "⛔ 看门狗已关闭（掉线需手动运行本启动器[2]修复）" -ForegroundColor Yellow
+    }
+}
+
 if ($Action) {
     switch ($Action) {
         "1" { Invoke-NormalStart; exit }
         "2" { Invoke-FullRepair; exit }
         "3" { Invoke-Diagnose; exit }
         "4" { Invoke-SendTest; exit }
+        "5" { Toggle-Watchdog; exit }
     }
 }
 
@@ -195,9 +213,10 @@ while ($true) {
     Write-Host ""
     Write-Host "======== QQ聊天助手 启动器 v2 ========" -ForegroundColor Cyan
     Write-Host "  [1] 启动/重启（幂等，缺什么启什么）"
-    Write-Host "  [2] 全面修复（会话死亡/多实例叠跑的一键解法，需扫码）"
+    Write-Host "  [2] 全面修复（会话死亡的一键解法，需扫码）"
     Write-Host "  [3] 自检诊断（查QQ实例/端口/进程/日志）"
     Write-Host "  [4] 发送通道测试（向推送群发🔧自检消息）"
+    Write-Host "  [5] 看门狗 开/关（当前每30分钟自动巡检）"
     Write-Host "  [q] 退出"
     $sel = Read-Host "选择（回车=[1]）"
     if ([string]::IsNullOrWhiteSpace($sel)) { $sel = "1" }
@@ -206,6 +225,7 @@ while ($true) {
         "2" { Invoke-FullRepair }
         "3" { Invoke-Diagnose }
         "4" { Invoke-SendTest }
+        "5" { Toggle-Watchdog }
         "q" { exit }
         "Q" { exit }
         default { Write-Host "无效选择" -ForegroundColor Yellow }
