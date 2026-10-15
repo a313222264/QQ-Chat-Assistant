@@ -116,8 +116,27 @@ def health_checks(fix_send: bool) -> None:
     log("一切正常")
 
 
+def bot_python_running() -> bool:
+    """机器人主程序是否在运行 = 用户是否手动启动过。没运行就看门狗绝不拉起任何东西（开机后保持安静）。"""
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" -ErrorAction SilentlyContinue | "
+             "Where-Object { $_.CommandLine -like '*qq-assistant*main.py*' } | "
+             "ForEach-Object { $_.ProcessId }"],
+            capture_output=True, text=True, timeout=30,
+        ).stdout.strip()
+        return any(x.isdigit() for x in out.split())
+    except Exception:
+        return False  # 检测失败按未运行处理：宁可不动，不可误启
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "normal"
+
+    if not bot_python_running():
+        log("机器人主程序未运行（非手动启动状态），看门狗跳过")
+        return
 
     if mode == "resume":
         # 系统唤醒事件触发：等网络和QQ先自己重连1分钟，再带发送实测的检查
