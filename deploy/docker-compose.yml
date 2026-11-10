@@ -1,0 +1,31 @@
+# QQ聊天助手 服务器编排：NapCat（无头QQ） + 机器人
+# 用法见同目录《服务器部署指南.md》
+# 启动：docker compose up -d --build
+
+services:
+  napcat:
+    image: mlikiowa/napcat-docker:latest
+    container_name: napcat
+    restart: always
+    environment:
+      - ACCOUNT=2531285699          # 机器人QQ号
+      - WEBUI_TOKEN=改成你自己的强密码   # ★部署前必改，管理面板登录密码
+    volumes:
+      - ./napcat/config:/app/napcat/config   # NapCat 配置（登录后生成的网络配置也在这）
+      - ./napcat/QQ:/app/.config/QQ          # QQ 数据目录（登录态缓存）
+    ports:
+      - "6099:6099"   # WebUI 管理页：部署/扫码时用，平时建议在安全组关掉公网访问
+    # 注意：3001 不对外映射！机器人走容器内网 ws://napcat:3001 访问，公网摸不到
+
+  bot:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: qq-bot
+    restart: always
+    depends_on:
+      - napcat
+    volumes:
+      - ../config.yaml:/app/config.yaml:ro   # 配置（含MiniMax key，从本机上传）
+      - ../data:/app/data                    # 数据库/表情包/运行状态（持久化）
+      - ../logs:/app/logs                    # 日志

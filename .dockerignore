@@ -1,0 +1,11 @@
+venv/
+NapCat/
+data/
+logs/
+config.yaml
+.git/
+deploy/napcat/
+__pycache__/
+*.pyc
+scripts/
+!scripts/healthcheck.py
